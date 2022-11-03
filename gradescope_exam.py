@@ -1,11 +1,10 @@
 import time
 import datetime
-import re
-from selenium import webdriver
+import json
 from selenium.webdriver.common.by import By
 
 
-def try_get(function, default=""):
+def try_get(function, default=None):
     try:
         return function()
     except:
@@ -52,8 +51,8 @@ class WebDrivers():
 
 
 class Course():
-    def __init__(self, id, name="", description=""):
-        self.id = id
+    def __init__(self, course_id, name="", description=""):
+        self.id = course_id
         self.name = name
         self.description = description
 
@@ -66,9 +65,9 @@ class Course():
 
 
 class Assignment():
-    def __init__(self, course_id, id, name="", release_date="", due_date="", hard_due_date="", published=False):
+    def __init__(self, course_id, assignment_id, name="", release_date="", due_date="", hard_due_date="", published=False):
         self.course_id = course_id
-        self.id = id
+        self.id = assignment_id
         self.name = name
         self.release_date = release_date
         self.due_date = due_date
@@ -111,13 +110,13 @@ class Gradescope():
         self.open(self.ACCOUNT_URL)
         elements = self.driver.find_elements(By.CSS_SELECTOR, "a.courseBox")
         for e in elements:
-            id = e.get_attribute("href").strip(Gradescope.COURSES_URL)
-            course = Course(id)
+            cid = e.get_attribute("href").strip(Gradescope.COURSES_URL)
+            course = Course(cid)
             courses.append(course)
 
             # Get optional attributes
-            course.name = try_get(lambda: e.find_element(By.CSS_SELECTOR, ".courseBox--shortname").text)
-            course.desc = try_get(lambda: e.find_element(By.CSS_SELECTOR, ".courseBox--name").text)
+            course.name = try_get(lambda: e.find_element(By.CSS_SELECTOR, ".courseBox--shortname").text, "")
+            course.desc = try_get(lambda: e.find_element(By.CSS_SELECTOR, ".courseBox--name").text, "")
         return courses
 
     def get_assignments(self, course_id):
@@ -125,16 +124,16 @@ class Gradescope():
         self.open(f"{self.COURSES_URL}/{course_id}")
         elements = self.driver.find_elements(By.CSS_SELECTOR, ".js-assignmentTableAssignmentRow")
         for e in elements:
-            id = e.get_attribute("data-assignment-id")
-            assignment = Assignment(course_id, id)
+            aid = e.get_attribute("data-assignment-id")
+            assignment = Assignment(course_id, aid)
             assignments.append(assignment)
 
             # Get optional attributes
-            assignment.name = try_get(lambda: e.find_element(By.CSS_SELECTOR, ".assignments--rowTitle").text)
+            assignment.name = try_get(lambda: e.find_element(By.CSS_SELECTOR, ".assignments--rowTitle").text, "")
             
-            assignment.release_date = self.format_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--releaseDate").text.lower()))
-            assignment.due_date = self.format_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--dueDate").text.lower()))
-            assignment.hard_due_date = self.format_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--hardDueDate").text.lower().strip("late due date: ")))
+            assignment.release_date = self.parse_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--releaseDate").text.lower()))
+            assignment.due_date = self.parse_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--dueDate").text.lower()))
+            assignment.hard_due_date = self.parse_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--hardDueDate").text.lower().strip("late due date: ")))
 
             # Get published state
             assignment.published = len(e.find_elements(By.CSS_SELECTOR, ".workflowCheck-complete")) > 0
@@ -151,13 +150,13 @@ class Gradescope():
             if assignment.release_date:
                 release = date_field.find_element(By.CSS_SELECTOR, "#assignment_release_date_string")
                 release.clear()
-                release.send_keys(assignment.release_date)
+                release.send_keys(self.format_date(assignment.release_date))
 
             # Update due date
             if assignment.due_date:
                 due = date_field.find_element(By.CSS_SELECTOR, "#assignment_due_date_string")
                 due.clear()
-                due.send_keys(assignment.due_date)
+                due.send_keys(self.format_date(assignment.due_date))
 
             # Update late due date (enable/disable it if needed)
             late = date_field.find_element(By.CSS_SELECTOR, "#assignment_hard_due_date_string")
@@ -167,7 +166,7 @@ class Gradescope():
                     self.driver.execute_script("arguments[0].click()", late_check)
                 
                 late.clear()
-                late.send_keys(assignment.hard_due_date)
+                late.send_keys(self.format_date(assignment.hard_due_date))
             else:
                 if late.text: # Uncheck late submissions
                     self.driver.execute_script("arguments[0].click()", late_check)
@@ -184,22 +183,35 @@ class Gradescope():
             self.open(review_url)
         
         if assignment.published:
-            publish_button = try_get(lambda: self.driver.find_element(By.CSS_SELECTOR, ".review-grades-next-button"), None)
+            publish_button = try_get(lambda: self.driver.find_element(By.CSS_SELECTOR, ".review-grades-next-button"))
             if publish_button:
                 publish_button.click()
         else:
-            unpublish_form = try_get(lambda: self.driver.find_element(By.CSS_SELECTOR, ".button_to"), None)
+            unpublish_form = try_get(lambda: self.driver.find_element(By.CSS_SELECTOR, ".button_to"))
             if unpublish_form:
                 unpublish_form.submit()
 
     @staticmethod
-    def format_date(date_string):
+    def parse_date(date_string):
+        if not date_string:
+            return None
+        
+        ''' Using RegEx
         result = re.match(r"(\w+ \d+) at ([0-9:]+)(\w+)", date_string)
         if not result:
             return ""
+        return f"{result.group(1)} {datetime.date.today().year} {result.group(2)} {result.group(3)}"
+        '''
         
         # TODO: Inserting current year (the assignment page doesn't display years)
-        return f"{result.group(1)} {datetime.date.today().year} {result.group(2)} {result.group(3)}"
+        return datetime.datetime.strptime(date_string, "%b %d at %I:%M%p").replace(year=datetime.date.today().year)
+
+    @staticmethod
+    def format_date(date):
+        if not date:
+            return ""
+
+        return datetime.datetime.strftime(date, "%b %d %Y %I:%S %p")
 
 
 if __name__ == "__main__":
@@ -219,8 +231,24 @@ if __name__ == "__main__":
         print("Invalid course ID, try again!")
     
     assignments = gscope.get_assignments(course_id)
-    for a in assignments:
-        print(a)
+    
+
+    # Disable all assignments
+    for i, a in enumerate(assignments):
+        print(f"Disabling {i} of {len(assignments)}: {a.name}")
+
+        if a.release_date:
+            a.release_date = a.release_date.replace(year=9999)
+
+        if a.due_date:
+            a.due_date = a.due_date.replace(year=9999)
+
+        if a.hard_due_date:
+            a.hard_due_date = a.hard_due_date.replace(year=9999)
+
+        a.published = False
+
+        #gscope.update_assignment(a)
 
     input("Press ENTER to quit.")
     gscope.close()
