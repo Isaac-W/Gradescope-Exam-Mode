@@ -95,11 +95,11 @@ class Gradescope():
     def close(self):
         self.driver.quit()
 
-    def load(self, url):
+    def open(self, url):
         self.driver.get(url)
     
     def login(self):
-        self.load(self.LOGIN_URL)
+        self.open(self.LOGIN_URL)
         
         if self.driver.current_url == self.LOGIN_URL:
             print("\n==> Please log in to Gradescope!")
@@ -108,7 +108,7 @@ class Gradescope():
 
     def get_courses(self):
         courses = []
-        self.load(self.ACCOUNT_URL)
+        self.open(self.ACCOUNT_URL)
         elements = self.driver.find_elements(By.CSS_SELECTOR, "a.courseBox")
         for e in elements:
             id = e.get_attribute("href").strip(Gradescope.COURSES_URL)
@@ -122,7 +122,7 @@ class Gradescope():
 
     def get_assignments(self, course_id):
         assignments = []
-        self.load(f"{self.COURSES_URL}/{course_id}")
+        self.open(f"{self.COURSES_URL}/{course_id}")
         elements = self.driver.find_elements(By.CSS_SELECTOR, ".js-assignmentTableAssignmentRow")
         for e in elements:
             id = e.get_attribute("data-assignment-id")
@@ -135,10 +135,13 @@ class Gradescope():
             assignment.release_date = self.format_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--releaseDate").text.lower()))
             assignment.due_date = self.format_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--dueDate").text.lower()))
             assignment.hard_due_date = self.format_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--hardDueDate").text.lower().strip("late due date: ")))
+
+            # Get published state
+            assignment.published = len(e.find_elements(By.CSS_SELECTOR, ".workflowCheck-complete")) > 0
         return assignments
 
     def update_assignment(self, assignment):
-        self.load(f"{assignment.url}/edit")
+        self.open(f"{assignment.url}/edit")
 
         # Check for date field existence
         date_field = self.driver.find_element(By.CSS_SELECTOR, "#assignment-form-dates-and-submission-format")
@@ -174,6 +177,20 @@ class Gradescope():
         # Save the form
         save_button = self.driver.find_element(By.CSS_SELECTOR, "#assignment-actions input")
         save_button.click()
+
+        # Update published state
+        review_url = f"{assignment.url}/review_grades"
+        if self.driver.current_url != review_url:
+            self.open(review_url)
+        
+        if assignment.published:
+            publish_button = try_get(lambda: self.driver.find_element(By.CSS_SELECTOR, ".review-grades-next-button"), None)
+            if publish_button:
+                publish_button.click()
+        else:
+            unpublish_form = try_get(lambda: self.driver.find_element(By.CSS_SELECTOR, ".button_to"), None)
+            if unpublish_form:
+                unpublish_form.submit()
 
     @staticmethod
     def format_date(date_string):
