@@ -137,22 +137,56 @@ class Gradescope():
             assignment.hard_due_date = self.format_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--hardDueDate").text.lower().strip("late due date: ")))
         return assignments
 
+    def update_assignment(self, assignment):
+        self.load(f"{assignment.url}/edit")
+
+        # Check for date field existence
+        date_field = self.driver.find_element(By.CSS_SELECTOR, "#assignment-form-dates-and-submission-format")
+        style_str = date_field.get_attribute("style")
+        if "none" not in style_str:
+            # Update release date
+            if assignment.release_date:
+                release = date_field.find_element(By.CSS_SELECTOR, "#assignment_release_date_string")
+                release.clear()
+                release.send_keys(assignment.release_date)
+
+            # Update due date
+            if assignment.due_date:
+                due = date_field.find_element(By.CSS_SELECTOR, "#assignment_due_date_string")
+                due.clear()
+                due.send_keys(assignment.due_date)
+
+            # Update late due date (enable/disable it if needed)
+            late = date_field.find_element(By.CSS_SELECTOR, "#assignment_hard_due_date_string")
+            late_check = date_field.find_element(By.CSS_SELECTOR, "#allow_late_submissions")
+            if assignment.hard_due_date:
+                if not late.text:
+                    self.driver.execute_script("arguments[0].click()", late_check)
+                
+                late.clear()
+                late.send_keys(assignment.hard_due_date)
+            else:
+                if late.text: # Uncheck late submissions
+                    self.driver.execute_script("arguments[0].click()", late_check)
+
+        # TODO Not a full API -- could easily be modified to update name, etc.
+
+        # Save the form
+        save_button = self.driver.find_element(By.CSS_SELECTOR, "#assignment-actions input")
+        save_button.click()
+
     @staticmethod
     def format_date(date_string):
-        if not date_string:
-            return ""
-
-        print(date_string)
         result = re.match(r"(\w+ \d+) at ([0-9:]+)(\w+)", date_string)
-        print(result)
-
+        if not result:
+            return ""
+        
         # TODO: Inserting current year (the assignment page doesn't display years)
         return f"{result.group(1)} {datetime.date.today().year} {result.group(2)} {result.group(3)}"
 
 
 if __name__ == "__main__":
     browser = WebDrivers.EDGE  # Browsers: CHROME, FIREFOX, EDGE
-    course_url = "https://www.gradescope.com/courses/426823"
 
     print("Initializing WebDriver...")
     gscope = Gradescope(WebDrivers.get(browser))
