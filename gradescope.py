@@ -413,6 +413,6 @@ if __name__ == "__main__":
             gscope.update_assignment(a)
         print("Done.")
 
-
+    gscope.open(gscope.ROOT_URL)
     input("\n==> Press ENTER to quit.")
     gscope.close()
