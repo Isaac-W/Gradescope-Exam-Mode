@@ -52,6 +52,7 @@ class WebDrivers():
 
 class Course():
     def __init__(self, course_id, name="", description=""):
+        self.type = "Course"
         self.id = course_id
         self.name = name
         self.description = description
@@ -66,6 +67,7 @@ class Course():
 
 class Assignment():
     def __init__(self, course_id, assignment_id, name="", release_date="", due_date="", hard_due_date="", published=False):
+        self.type = "Assignment"
         self.course_id = course_id
         self.id = assignment_id
         self.name = name
@@ -116,7 +118,7 @@ class Gradescope():
 
             # Get optional attributes
             course.name = try_get(lambda: e.find_element(By.CSS_SELECTOR, ".courseBox--shortname").text, "")
-            course.desc = try_get(lambda: e.find_element(By.CSS_SELECTOR, ".courseBox--name").text, "")
+            course.description = try_get(lambda: e.find_element(By.CSS_SELECTOR, ".courseBox--name").text, "")
         return courses
 
     def get_assignments(self, course_id):
@@ -214,12 +216,51 @@ class Gradescope():
         return datetime.datetime.strftime(date, "%b %d %Y %I:%S %p")
 
 
+class GscopeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (Course, Assignment)):
+            return obj.__dict__
+        elif isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        return json.JSONEncoder.default(self, obj)
+
+
+class GscopeDecoder(json.JSONDecoder):
+    @staticmethod
+    def parse_time(time):
+        return datetime.datetime.fromisoformat(time) if time else None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(object_hook=self.object_hook, *args, **kwargs)
+
+    def object_hook(self, dct):
+        if "type" in dct:
+            if dct["type"] == "Course":
+                return Course(
+                    course_id=dct["id"],
+                    name=dct["name"],
+                    description=dct["description"]
+                )
+            elif dct["type"] == "Assignment":
+                return Assignment(
+                    course_id=dct["course_id"],
+                    assignment_id=dct["id"],
+                    name=dct["name"],
+                    release_date=self.parse_time(dct["release_date"]),
+                    due_date=self.parse_time(dct["due_date"]),
+                    hard_due_date=self.parse_time(dct["hard_due_date"]),
+                    published=dct["published"]
+                )
+        return dct
+
+
 if __name__ == "__main__":
     browser = WebDrivers.EDGE  # Browsers: CHROME, FIREFOX, EDGE
 
     print("Initializing WebDriver...")
     gscope = Gradescope(WebDrivers.get(browser))
     gscope.login()
+    print()
 
     courses = gscope.get_courses()
     for x in courses:
@@ -231,7 +272,13 @@ if __name__ == "__main__":
         print("Invalid course ID, try again!")
     
     assignments = gscope.get_assignments(course_id)
-    
+
+    json_filename = input("Enter a filename to save assignment details (.json): ")
+    if json_filename:
+        json_filename = json_filename.strip(".json") + ".json"
+        with open(json_filename, 'w') as file:
+            json.dump(assignments, indent=4, cls=GscopeEncoder)
+        print("Saved to: {json_filename}")
 
     # Disable all assignments
     for i, a in enumerate(assignments):
@@ -250,5 +297,6 @@ if __name__ == "__main__":
 
         #gscope.update_assignment(a)
 
+    print("Done.")
     input("Press ENTER to quit.")
     gscope.close()
