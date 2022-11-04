@@ -12,12 +12,13 @@ def try_get(function, default=None):
 
 
 class WebDrivers():
-    CHROME = 1
-    FIREFOX = 2
-    EDGE = 3
+    CHROME = "chrome"
+    FIREFOX = "firefox"
+    EDGE = "edge"
 
     @staticmethod
     def get(driver_type):
+        driver_type = driver_type.lower()
         options = None
 
         if driver_type == WebDrivers.CHROME:
@@ -47,6 +48,7 @@ class WebDrivers():
         else:
             return None
 
+        print(f"Initializing {driver_type.title()} WebDriver...")
         return Driver(service=Service(DriverManager().install()), options=options)
 
 
@@ -90,22 +92,51 @@ class Gradescope():
     ACCOUNT_URL = f"{ROOT_URL}/account"
     COURSES_URL = f"{ROOT_URL}/courses"
 
+    SLEEP_TIME = 1
+
     def __init__(self, webdriver):
         self.driver = webdriver
     
     def close(self):
         self.driver.quit()
 
-    def open(self, url):
-        self.driver.get(url)
+    def open(self, url, refresh=False):
+        if refresh or self.driver.current_url != url:
+            self.driver.get(url)
     
-    def login(self):
+    def prompt_login(self):
         self.open(self.LOGIN_URL)
+        print("\n==> Please log in to Gradescope!\n")
         
+        # Wait for URL to change
         if self.driver.current_url == self.LOGIN_URL:
-            print("\n==> Please log in to Gradescope!")
             while self.driver.current_url == self.LOGIN_URL:
-                time.sleep(2)
+                time.sleep(self.SLEEP_TIME)
+
+    def prompt_select_course(self):
+        # Modify header to prompt user
+        self.open(self.ACCOUNT_URL)
+        self.driver.execute_script("""e = document.querySelector(".pageHeading"); e.textContent = "Please select a course below:"; e.style.fontWeight = "bold";""")
+        
+        # Wait until user selects a course
+        course_id = ""
+        while not (course_id := self.driver.current_url.strip(f"{self.COURSES_URL}/")).isnumeric():
+            time.sleep(self.SLEEP_TIME)
+        return course_id
+
+    def prompt_assignment_command(self, course_id):
+        assignments_url = f"{self.COURSES_URL}/{course_id}/assignments"
+        self.open(assignments_url)
+        
+        # Add buttons to add a command to the url
+        header = self.driver.find_element(By.CSS_SELECTOR, ".table--header h1")
+        self.driver.execute_script("""arguments[0].innerHTML += '<hr><a class="actionBar--action" href="#disable_all">Disable All</a><a class="actionBar--action" href="#enable_all">Enable All...</a>'""", header)
+
+        # Wait for user to make a selection
+        command = ""
+        while ("#" not in self.driver.current_url) or not (command := self.driver.current_url.split("#")[1]):
+            time.sleep(self.SLEEP_TIME)
+        return command
 
     def get_courses(self):
         courses = []
@@ -123,7 +154,7 @@ class Gradescope():
 
     def get_assignments(self, course_id):
         assignments = []
-        self.open(f"{self.COURSES_URL}/{course_id}")
+        self.open(f"{self.COURSES_URL}/{course_id}/assignments")
         elements = self.driver.find_elements(By.CSS_SELECTOR, ".js-assignmentTableAssignmentRow")
         for e in elements:
             aid = e.get_attribute("data-assignment-id")
@@ -164,7 +195,7 @@ class Gradescope():
             late = date_field.find_element(By.CSS_SELECTOR, "#assignment_hard_due_date_string")
             late_check = date_field.find_element(By.CSS_SELECTOR, "#allow_late_submissions")
             if assignment.hard_due_date:
-                if not late.text:
+                if late.get_attribute("disabled"):
                     self.driver.execute_script("arguments[0].click()", late_check)
                 
                 late.clear()
@@ -255,48 +286,79 @@ class GscopeDecoder(json.JSONDecoder):
 
 
 if __name__ == "__main__":
-    browser = WebDrivers.EDGE  # Browsers: CHROME, FIREFOX, EDGE
+    driver = None
+    while not driver:
+        browser = input("Select a browser (chrome, firefox, edge): ")
+        driver = WebDrivers.get(browser)
+    
+    gscope = Gradescope(driver)
+    gscope.prompt_login()
 
-    print("Initializing WebDriver...")
-    gscope = Gradescope(WebDrivers.get(browser))
-    gscope.login()
-    print()
-
+    ''' Old command-line method
     courses = gscope.get_courses()
     for x in courses:
         print(x)
+    print()
 
     courses = {x.id: x for x in courses}
     course_id = None
+
     while (course_id := input("Enter a course ID: ")) not in courses:
         print("Invalid course ID, try again!")
+    '''
+
+    course_id = gscope.prompt_select_course()
+    command = gscope.prompt_assignment_command(course_id)
     
-    assignments = gscope.get_assignments(course_id)
+    if command == "disable_all":
+        print("Getting all assignment details...")
+        assignments = gscope.get_assignments(course_id)
 
-    json_filename = input("Enter a filename to save assignment details (.json): ")
-    if json_filename:
-        json_filename = json_filename.strip(".json") + ".json"
-        with open(json_filename, 'w') as file:
-            json.dump(assignments, indent=4, cls=GscopeEncoder)
-        print("Saved to: {json_filename}")
+        """ Save through Python
+        json_filename = input("Enter a filename to save assignment details (.json): ")
+        if json_filename:
+            json_filename = json_filename.strip(".json") + ".json"
+            with open(json_filename, 'w') as file:
+                json.dump(assignments, file, indent=4, cls=GscopeEncoder)
+            print("Saved to: {json_filename}")
+        """
 
-    # Disable all assignments
-    for i, a in enumerate(assignments):
-        print(f"Disabling {i} of {len(assignments)}: {a.name}")
+        # Save through browser
+        json_string = json.dumps(assignments, indent=4, cls=GscopeEncoder)
+        save_script = f"""
+        var file = new Blob([arguments[0]], {{
+            type: "application/json"
+        }});
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(file);
+        a.download = "assignment_details.json";
+        a.click();
+        """
+        driver.execute_script(save_script, json_string)
 
-        if a.release_date:
-            a.release_date = a.release_date.replace(year=9999)
+        # Disable all assignments
+        for i, a in enumerate(assignments):
+            print(f"Disabling {i + 1} of {len(assignments)}: {a.name}")
 
-        if a.due_date:
-            a.due_date = a.due_date.replace(year=9999)
+            if a.release_date:
+                a.release_date = a.release_date.replace(year=9999)
 
-        if a.hard_due_date:
-            a.hard_due_date = a.hard_due_date.replace(year=9999)
+            if a.due_date:
+                a.due_date = a.due_date.replace(year=9999)
 
-        a.published = False
+            if a.hard_due_date:
+                a.hard_due_date = a.hard_due_date.replace(year=9999)
 
-        #gscope.update_assignment(a)
+            a.published = False
 
-    print("Done.")
+            gscope.update_assignment(a)
+
+        print("Done.")
+    elif command == "enable_all":
+        # Pick a JSON file to load
+        
+
+        pass  # TODO
+
     input("Press ENTER to quit.")
     gscope.close()
