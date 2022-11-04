@@ -414,5 +414,5 @@ if __name__ == "__main__":
         print("Done.")
 
 
-    gscope.close()
     input("\n==> Press ENTER to quit.")
+    gscope.close()
