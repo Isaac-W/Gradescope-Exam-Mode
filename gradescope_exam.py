@@ -399,5 +399,5 @@ if __name__ == "__main__":
             gscope.update_assignment(a)
 
 
-    #input("Press ENTER to quit.")
+    input("\n==> Press ENTER to quit.")
     gscope.close()
