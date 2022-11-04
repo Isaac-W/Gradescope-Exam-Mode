@@ -1,10 +1,8 @@
+import sys
 import time
 import datetime
 import json
 from selenium.webdriver.common.by import By
-
-
-BROWSER = "edge"  # chrome, firefox, edge
 
 
 def try_get(function, default=None):
@@ -133,7 +131,7 @@ class Gradescope():
         
         # Add buttons for disable/enable assignments
         header = self.driver.find_element(By.CSS_SELECTOR, ".courseHeader")
-        self.driver.execute_script("""arguments[0].innerHTML += '<br><a class="actionBar--action" href="#disable_all">Disable All</a><button type="button" class="actionBar--action" id="enable_all_btn">Enable All...</button><input type="file" id="filepicker" style="display: none;" />';""", header)
+        self.driver.execute_script("""arguments[0].innerHTML += '<br><a class="actionBar--action" href="#save_details">Save Assignment Details</a><a class="actionBar--action" href="#disable_all">Disable All</a><button type="button" class="actionBar--action" id="enable_all_btn">Update All...</button><input type="file" id="filepicker" style="display: none;" />';""", header)
         
         # Make magic file picker
         self.driver.execute_script("""
@@ -318,7 +316,7 @@ class GscopeDecoder(json.JSONDecoder):
 
 
 if __name__ == "__main__":
-    driver = WebDrivers.get(BROWSER)
+    driver = WebDrivers.get(sys.argv[1] if len(sys.argv) > 1 else "")
     while not driver:
         browser = input("Enter a browser name (chrome, firefox, edge): ")
         driver = WebDrivers.get(browser)
@@ -342,7 +340,24 @@ if __name__ == "__main__":
     course_id = gscope.prompt_select_course()
     command = gscope.prompt_assignment_command(course_id)
     
-    if command == "disable_all":
+    if command == "save_details":
+        print("Getting all assignment details...")
+        assignments = gscope.get_assignments(course_id)
+        print(f"Loaded {len(assignments)} entries.")
+
+        # Save through browser
+        json_string = json.dumps(assignments, indent=4, cls=GscopeEncoder)
+        save_script = f"""
+        var file = new Blob([arguments[0]], {{
+            type: "application/json"
+        }});
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(file);
+        a.download = "assignments_{course_id}.json";
+        a.click();
+        """
+        driver.execute_script(save_script, json_string)
+    elif command == "disable_all":
         print("Getting all assignment details...")
         assignments = gscope.get_assignments(course_id)
         print(f"Loaded {len(assignments)} entries.")
@@ -386,7 +401,6 @@ if __name__ == "__main__":
             a.published = False
 
             gscope.update_assignment(a)
-
         print("Done.")
     elif command == "enable_all":
         raw_data = gscope.load_filepicker_data()
@@ -397,7 +411,8 @@ if __name__ == "__main__":
         for i, a in enumerate(assignments):
             print(f"Updating {i + 1} of {len(assignments)}: {a.name}")
             gscope.update_assignment(a)
+        print("Done.")
 
 
-    input("\n==> Press ENTER to quit.")
     gscope.close()
+    input("\n==> Press ENTER to quit.")
