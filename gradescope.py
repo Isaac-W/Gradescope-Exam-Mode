@@ -105,6 +105,10 @@ class Gradescope():
         if refresh or self.driver.current_url != url:
             self.driver.get(url)
     
+    def show_finished(self):
+        self.driver.get("about:blank")
+        self.driver.execute_script("""document.querySelector("body").innerHTML = "<h1>All done. This application will quit in 5 seconds.</h1>";""")
+
     def prompt_login(self):
         self.open(self.LOGIN_URL)
         print("\n==> Please log in to Gradescope!\n")
@@ -413,6 +417,6 @@ if __name__ == "__main__":
             gscope.update_assignment(a)
         print("Done.")
 
-    gscope.open(gscope.ROOT_URL)
-    input("\n==> Press ENTER to quit.")
+    gscope.show_finished()
+    time.sleep(5)
     gscope.close()
