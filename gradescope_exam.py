@@ -4,6 +4,9 @@ import json
 from selenium.webdriver.common.by import By
 
 
+BROWSER = "edge"  # chrome, firefox, edge
+
+
 def try_get(function, default=None):
     try:
         return function()
@@ -125,18 +128,47 @@ class Gradescope():
         return course_id
 
     def prompt_assignment_command(self, course_id):
-        assignments_url = f"{self.COURSES_URL}/{course_id}/assignments"
+        assignments_url = f"{self.COURSES_URL}/{course_id}"
         self.open(assignments_url)
         
-        # Add buttons to add a command to the url
-        header = self.driver.find_element(By.CSS_SELECTOR, ".table--header h1")
-        self.driver.execute_script("""arguments[0].innerHTML += '<hr><a class="actionBar--action" href="#disable_all">Disable All</a><a class="actionBar--action" href="#enable_all">Enable All...</a>'""", header)
+        # Add buttons for disable/enable assignments
+        header = self.driver.find_element(By.CSS_SELECTOR, ".courseHeader")
+        self.driver.execute_script("""arguments[0].innerHTML += '<br><a class="actionBar--action" href="#disable_all">Disable All</a><button type="button" class="actionBar--action" id="enable_all_btn">Enable All...</button><input type="file" id="filepicker" style="display: none;" />';""", header)
+        
+        # Make magic file picker
+        self.driver.execute_script("""
+        fileinput = document.querySelector("#filepicker");
+        fileinput.onchange = () => {
+            window.location = "#enable_all";
+        };
+        
+        button = document.querySelector("#enable_all_btn");
+        button.onclick = () => {
+            fileinput.click();
+        };
+        """)
 
         # Wait for user to make a selection
         command = ""
         while ("#" not in self.driver.current_url) or not (command := self.driver.current_url.split("#")[1]):
             time.sleep(self.SLEEP_TIME)
         return command
+
+    def load_filepicker_data(self):
+        self.driver.set_script_timeout(300)  # Wait for 5 minutes
+        data = self.driver.execute_async_script("""
+        done = arguments[0];
+        fileinput = document.querySelector("#filepicker");
+        fr = new FileReader();
+        fr.onload = () => {
+            console.log(fr.result);
+            console.log(fr.result.length);
+            done(fr.result);
+        };
+        fr.readAsText(fileinput.files[0]);
+        """)
+        #self.driver.set_script_timeout(0)
+        return data
 
     def get_courses(self):
         courses = []
@@ -177,7 +209,7 @@ class Gradescope():
 
         # Check for date field existence
         date_field = self.driver.find_element(By.CSS_SELECTOR, "#assignment-form-dates-and-submission-format")
-        style_str = date_field.get_attribute("style")
+        style_str = try_get(lambda: date_field.get_attribute("style"), "")
         if "none" not in style_str:
             # Update release date
             if assignment.release_date:
@@ -286,9 +318,9 @@ class GscopeDecoder(json.JSONDecoder):
 
 
 if __name__ == "__main__":
-    driver = None
+    driver = WebDrivers.get(BROWSER)
     while not driver:
-        browser = input("Select a browser (chrome, firefox, edge): ")
+        browser = input("Enter a browser name (chrome, firefox, edge): ")
         driver = WebDrivers.get(browser)
     
     gscope = Gradescope(driver)
@@ -313,6 +345,7 @@ if __name__ == "__main__":
     if command == "disable_all":
         print("Getting all assignment details...")
         assignments = gscope.get_assignments(course_id)
+        print(f"Loaded {len(assignments)} entries.")
 
         """ Save through Python
         json_filename = input("Enter a filename to save assignment details (.json): ")
@@ -331,12 +364,13 @@ if __name__ == "__main__":
         }});
         var a = document.createElement("a");
         a.href = URL.createObjectURL(file);
-        a.download = "assignment_details.json";
+        a.download = "assignments_{course_id}.json";
         a.click();
         """
         driver.execute_script(save_script, json_string)
 
         # Disable all assignments
+        #input("Press ENTER to begin updating assignments.")
         for i, a in enumerate(assignments):
             print(f"Disabling {i + 1} of {len(assignments)}: {a.name}")
 
@@ -355,10 +389,15 @@ if __name__ == "__main__":
 
         print("Done.")
     elif command == "enable_all":
-        # Pick a JSON file to load
-        
+        raw_data = gscope.load_filepicker_data()
+        assignments = json.loads(raw_data, cls=GscopeDecoder)
+        print(f"Loaded {len(assignments)} entries.")
 
-        pass  # TODO
+        #input("Press ENTER to begin updating assignments.")
+        for i, a in enumerate(assignments):
+            print(f"Updating {i + 1} of {len(assignments)}: {a.name}")
+            gscope.update_assignment(a)
 
-    input("Press ENTER to quit.")
+
+    #input("Press ENTER to quit.")
     gscope.close()
