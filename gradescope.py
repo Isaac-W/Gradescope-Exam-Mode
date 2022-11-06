@@ -102,21 +102,22 @@ class Gradescope():
         self.driver.quit()
 
     def open(self, url, refresh=False):
-        if refresh or self.driver.current_url != url:
+        if refresh or self.driver.current_url != url or driver.execute_script("return document.readyState;") != "complete":
             self.driver.get(url)
     
-    def show_finished(self):
+    def finish(self, timeout=5):
         self.driver.get("about:blank")
-        self.driver.execute_script("""document.querySelector("body").innerHTML = "<h1>All done. This application will quit in 5 seconds.</h1>";""")
+        self.driver.execute_script(f"""document.querySelector("body").innerHTML = "<h1>All done. This application will quit in {timeout} seconds.</h1>";""")
+        time.sleep(timeout)
+        self.close()
 
     def prompt_login(self):
         self.open(self.LOGIN_URL)
         print("\n==> Please log in to Gradescope!\n")
         
         # Wait for URL to change
-        if self.driver.current_url == self.LOGIN_URL:
-            while self.driver.current_url == self.LOGIN_URL:
-                time.sleep(self.SLEEP_TIME)
+        while self.driver.current_url == self.LOGIN_URL:
+            time.sleep(self.SLEEP_TIME)
 
     def prompt_select_course(self):
         # Modify header to prompt user
@@ -417,6 +418,4 @@ if __name__ == "__main__":
             gscope.update_assignment(a)
         print("Done.")
 
-    gscope.show_finished()
-    time.sleep(5)
-    gscope.close()
+    gscope.finish()
