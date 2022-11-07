@@ -81,7 +81,7 @@ class Assignment():
 
     @property
     def url(self):
-        return f"{Gradescope.ROOT_URL}/courses/{course_id}/assignments/{self.id}"
+        return f"{Gradescope.ROOT_URL}/courses/{self.course_id}/assignments/{self.id}"
 
     def __str__(self):
         return f"{self.id} | {self.name} | {self.url}"
@@ -102,7 +102,7 @@ class Gradescope():
         self.driver.quit()
 
     def open(self, url, refresh=False):
-        if refresh or self.driver.current_url != url or driver.execute_script("return document.readyState;") != "complete":
+        if refresh or self.driver.current_url != url or self.driver.execute_script("return document.readyState;") != "complete":
             self.driver.get(url)
     
     def finish(self, timeout=5):
@@ -136,7 +136,18 @@ class Gradescope():
         
         # Add buttons for disable/enable assignments
         header = self.driver.find_element(By.CSS_SELECTOR, ".courseHeader")
-        self.driver.execute_script("""arguments[0].innerHTML += '<br><a class="actionBar--action" href="#save_details">Save Assignment Details</a><a class="actionBar--action" href="#disable_all">Disable All</a><button type="button" class="actionBar--action" id="enable_all_btn">Update All...</button><input type="file" id="filepicker" style="display: none;" />';""", header)
+        self.driver.execute_script("""
+        arguments[0].innerHTML += `
+        <br>
+        <a class="btn modal--btnPrimary" href="#back">Back to Courses</a>
+        <br>
+        <a class="btn modal--btnPrimary" href="#disable_all">Disable All Assignments</a>
+        <button type="button" class="btn modal--btnPrimary" id="enable_all_btn">Enable/Update All Assignments...</button>
+        <input type="file" id="filepicker" style="display: none;" />
+        <a class="btn modal--btnPrimary" href="#save_details">Export Assignment Details</a>
+        <br>
+        <a class="btn modal--btnDanger" href="#quit">Close Gradescope</a>
+        `;""", header)
         
         # Make magic file picker
         self.driver.execute_script("""
@@ -259,17 +270,24 @@ class Gradescope():
             if unpublish_form:
                 unpublish_form.submit()
 
+    def save_json(self, obj, filename):
+        # Save through browser
+        json_string = json.dumps(obj, indent=4, cls=GscopeEncoder)
+        save_script = f"""
+        var file = new Blob([arguments[0]], {{
+            type: "application/json"
+        }});
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(file);
+        a.download = "{filename}";
+        a.click();
+        """
+        self.driver.execute_script(save_script, json_string)
+
     @staticmethod
     def parse_date(date_string):
         if not date_string:
             return None
-        
-        ''' Using RegEx
-        result = re.match(r"(\w+ \d+) at ([0-9:]+)(\w+)", date_string)
-        if not result:
-            return ""
-        return f"{result.group(1)} {datetime.date.today().year} {result.group(2)} {result.group(3)}"
-        '''
         
         # TODO: Inserting current year (the assignment page doesn't display years)
         return datetime.datetime.strptime(date_string, "%b %d at %I:%M%p").replace(year=datetime.date.today().year)
@@ -320,7 +338,42 @@ class GscopeDecoder(json.JSONDecoder):
         return dct
 
 
-if __name__ == "__main__":
+def retrieve_assignments(gscope, course_id, export=True):
+    print("Getting all assignment details...")
+    assignments = gscope.get_assignments(course_id)
+    print(f"Loaded {len(assignments)} entries.")
+
+    if export:
+        gscope.save_json(assignments, f"assignments_{course_id}.json")
+    return assignments
+
+
+def disable_assignments(gscope, assignments):
+    # Disable all assignments
+    for i, a in enumerate(assignments):
+        print(f"Disabling {i + 1} of {len(assignments)}: {a.name}")
+
+        if a.release_date:
+            a.release_date = a.release_date.replace(year=9999)
+
+        if a.due_date:
+            a.due_date = a.due_date.replace(year=9999)
+
+        if a.hard_due_date:
+            a.hard_due_date = a.hard_due_date.replace(year=9999)
+
+        a.published = False
+
+        gscope.update_assignment(a)
+
+
+def update_assignments(gscope, assignments):
+    for i, a in enumerate(assignments):
+        print(f"Updating {i + 1} of {len(assignments)}: {a.name}")
+        gscope.update_assignment(a)
+
+
+def main():
     driver = WebDrivers.get(sys.argv[1] if len(sys.argv) > 1 else "")
     while not driver:
         browser = input("Enter a browser name (chrome, firefox, edge): ")
@@ -329,93 +382,35 @@ if __name__ == "__main__":
     gscope = Gradescope(driver)
     gscope.prompt_login()
 
-    ''' Old command-line method
-    courses = gscope.get_courses()
-    for x in courses:
-        print(x)
-    print()
+    running = True
+    while running:
+        course_id = gscope.prompt_select_course()
 
-    courses = {x.id: x for x in courses}
-    course_id = None
+        while True:
+            command = gscope.prompt_assignment_command(course_id)
+            
+            if command == "save_details":
+                retrieve_assignments(gscope, course_id)
+            elif command == "disable_all":
+                assignments = retrieve_assignments(gscope, course_id)
+                
+                disable_assignments(gscope, assignments)
+                print("Done.")
+            elif command == "enable_all":
+                raw_data = gscope.load_filepicker_data()
+                assignments = json.loads(raw_data, cls=GscopeDecoder)
+                print(f"Loaded {len(assignments)} entries.")
+                
+                update_assignments(gscope, assignments)
+                print("Done.")
+            elif command == "back":
+                break
+            elif command == "quit":
+                running = False
+                break
 
-    while (course_id := input("Enter a course ID: ")) not in courses:
-        print("Invalid course ID, try again!")
-    '''
+    gscope.close()
 
-    course_id = gscope.prompt_select_course()
-    command = gscope.prompt_assignment_command(course_id)
-    
-    if command == "save_details":
-        print("Getting all assignment details...")
-        assignments = gscope.get_assignments(course_id)
-        print(f"Loaded {len(assignments)} entries.")
 
-        # Save through browser
-        json_string = json.dumps(assignments, indent=4, cls=GscopeEncoder)
-        save_script = f"""
-        var file = new Blob([arguments[0]], {{
-            type: "application/json"
-        }});
-        var a = document.createElement("a");
-        a.href = URL.createObjectURL(file);
-        a.download = "assignments_{course_id}.json";
-        a.click();
-        """
-        driver.execute_script(save_script, json_string)
-    elif command == "disable_all":
-        print("Getting all assignment details...")
-        assignments = gscope.get_assignments(course_id)
-        print(f"Loaded {len(assignments)} entries.")
-
-        """ Save through Python
-        json_filename = input("Enter a filename to save assignment details (.json): ")
-        if json_filename:
-            json_filename = json_filename.strip(".json") + ".json"
-            with open(json_filename, 'w') as file:
-                json.dump(assignments, file, indent=4, cls=GscopeEncoder)
-            print("Saved to: {json_filename}")
-        """
-
-        # Save through browser
-        json_string = json.dumps(assignments, indent=4, cls=GscopeEncoder)
-        save_script = f"""
-        var file = new Blob([arguments[0]], {{
-            type: "application/json"
-        }});
-        var a = document.createElement("a");
-        a.href = URL.createObjectURL(file);
-        a.download = "assignments_{course_id}.json";
-        a.click();
-        """
-        driver.execute_script(save_script, json_string)
-
-        # Disable all assignments
-        #input("Press ENTER to begin updating assignments.")
-        for i, a in enumerate(assignments):
-            print(f"Disabling {i + 1} of {len(assignments)}: {a.name}")
-
-            if a.release_date:
-                a.release_date = a.release_date.replace(year=9999)
-
-            if a.due_date:
-                a.due_date = a.due_date.replace(year=9999)
-
-            if a.hard_due_date:
-                a.hard_due_date = a.hard_due_date.replace(year=9999)
-
-            a.published = False
-
-            gscope.update_assignment(a)
-        print("Done.")
-    elif command == "enable_all":
-        raw_data = gscope.load_filepicker_data()
-        assignments = json.loads(raw_data, cls=GscopeDecoder)
-        print(f"Loaded {len(assignments)} entries.")
-
-        #input("Press ENTER to begin updating assignments.")
-        for i, a in enumerate(assignments):
-            print(f"Updating {i + 1} of {len(assignments)}: {a.name}")
-            gscope.update_assignment(a)
-        print("Done.")
-
-    gscope.finish()
+if __name__ == "__main__":
+    main()
