@@ -32,7 +32,7 @@ If you don't provide a command line argument, the program will prompt you to typ
 2. Once a browser instance opens, login to Gradescope.
 3. Click on a course to open it.
 4. At the top, you will see three new buttons, "Save Assignment Details", "Disable All", and "Enable All...".
-    * **Save Assignment Details** will download the current assignment details to a `.json` file. Keep this safe!
-    * **Disable All** will first download all the current assignment details, then disable and unpublish all assignments in the selected course.
+    * **Disable All** will first download all the current assignment details to a `.json` file. Keep this safe! Then it will disable and unpublish all assignments in the selected course.
     * **Update All...** will ask you to select the `.json` file containing the assignment details, which it will use to update the assignment details (due dates + published state).
+    * **Save Assignment Details** will download the current assignment details to a `.json` file and quit.
 5. Once the program is finished, go back to the command line and press Enter to quit.
