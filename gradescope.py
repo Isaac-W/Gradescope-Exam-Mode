@@ -116,7 +116,7 @@ class Gradescope():
         print("\n==> Please log in to Gradescope!\n")
         
         # Wait for URL to change
-        while self.driver.current_url == self.LOGIN_URL:
+        while self.driver.current_url != self.ACCOUNT_URL:
             time.sleep(self.SLEEP_TIME)
 
     def prompt_select_course(self):
