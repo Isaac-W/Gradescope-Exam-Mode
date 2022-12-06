@@ -126,7 +126,7 @@ class Gradescope():
         
         # Wait until user selects a course
         course_id = ""
-        while not (course_id := self.driver.current_url.strip(f"{self.COURSES_URL}/")).isnumeric():
+        while not (course_id := self.driver.current_url.replace(f"{self.COURSES_URL}/", "")).isnumeric():
             time.sleep(self.SLEEP_TIME)
         return course_id
 
@@ -189,7 +189,7 @@ class Gradescope():
         self.open(self.ACCOUNT_URL)
         elements = self.driver.find_elements(By.CSS_SELECTOR, "a.courseBox")
         for e in elements:
-            cid = e.get_attribute("href").strip(Gradescope.COURSES_URL)
+            cid = e.get_attribute("href").replace(Gradescope.COURSES_URL, "")
             course = Course(cid)
             courses.append(course)
 
@@ -212,7 +212,7 @@ class Gradescope():
             
             assignment.release_date = self.parse_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--releaseDate").text.lower()))
             assignment.due_date = self.parse_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--dueDate").text.lower()))
-            assignment.hard_due_date = self.parse_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--hardDueDate").text.lower().strip("late due date: ")))
+            assignment.hard_due_date = self.parse_date(try_get(lambda: e.find_element(By.CSS_SELECTOR, ".submissionTimeChart--hardDueDate").text.lower().replace("late due date: ", "")))
 
             # Get published state
             assignment.published = len(e.find_elements(By.CSS_SELECTOR, ".workflowCheck-complete")) > 0
