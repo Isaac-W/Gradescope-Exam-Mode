@@ -297,7 +297,7 @@ class Gradescope():
         if not date:
             return ""
 
-        return datetime.datetime.strftime(date, "%b %d %Y %I:%S %p")
+        return datetime.datetime.strftime(date, "%b %d %Y %I:%M %p")
 
 
 class GscopeEncoder(json.JSONEncoder):
