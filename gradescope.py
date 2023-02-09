@@ -253,7 +253,7 @@ class Gradescope():
         # TODO Not a full API -- could easily be modified to update name, etc.
 
         # Save the form
-        save_button = self.driver.find_element(By.CSS_SELECTOR, "#assignment-actions input")
+        save_button = self.driver.find_element(By.CSS_SELECTOR, "#assignment-actions .tiiBtn-primary")
         save_button.click()
 
         # Update published state
