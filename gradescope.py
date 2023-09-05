@@ -204,6 +204,10 @@ class Gradescope():
         self.open(f"{self.COURSES_URL}/{course_id}/assignments")
         elements = self.driver.find_elements(By.CSS_SELECTOR, ".js-assignmentTableAssignmentRow")
         for e in elements:
+            # Check if dates are listed by section (TODO: skip for now)
+            if "table--row-assignmentWithSection" in e.get_attribute("class"):
+                pass
+
             aid = e.get_attribute("data-assignment-id")
             assignment = Assignment(course_id, aid)
             assignments.append(assignment)
