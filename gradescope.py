@@ -3,6 +3,7 @@ import time
 import datetime
 import json
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import StaleElementReferenceException
 
 
 def try_get(function, default=None):
@@ -139,14 +140,14 @@ class Gradescope():
         self.driver.execute_script("""
         arguments[0].innerHTML += `
         <br>
-        <a class="btn modal--btnPrimary" href="#back">Back to Courses</a>
+        <a class="tiiBtn tiiBtn-secondary" href="#back">Back to Courses</a>
         <br>
-        <a class="btn modal--btnPrimary" href="#disable_all">Disable All Assignments</a>
-        <button type="button" class="btn modal--btnPrimary" id="enable_all_btn">Enable/Update All Assignments...</button>
+        <a class="tiiBtn tiiBtn-primary" href="#disable_all">Disable All Assignments</a>
+        <button type="button" class="tiiBtn tiiBtn-secondary" id="enable_all_btn">Enable/Update All Assignments...</button>
         <input type="file" id="filepicker" style="display: none;" />
-        <a class="btn modal--btnPrimary" href="#save_details">Export Assignment Details</a>
+        <a class="tiiBtn tiiBtn-secondary" href="#save_details">Export Assignment Details</a>
         <br>
-        <a class="btn modal--btnDanger" href="#quit">Close Gradescope</a>
+        <a class="tiiBtn tiiBtn-destructive" href="#quit">Close Gradescope</a>
         `;""", header)
         
         # Make magic file picker
@@ -229,23 +230,23 @@ class Gradescope():
             if assignment.release_date:
                 release = date_field.find_element(By.CSS_SELECTOR, "#assignment_release_date_string")
                 release.clear()
-                release.send_keys(self.format_date(assignment.release_date))
+                self.driver.execute_script(f"arguments[0].value = '{self.format_date(assignment.release_date)}'", release)
 
             # Update due date
             if assignment.due_date:
                 due = date_field.find_element(By.CSS_SELECTOR, "#assignment_due_date_string")
                 due.clear()
-                due.send_keys(self.format_date(assignment.due_date))
+                self.driver.execute_script(f"arguments[0].value = '{self.format_date(assignment.due_date)}'", due)
 
             # Update late due date (enable/disable it if needed)
             late = date_field.find_element(By.CSS_SELECTOR, "#assignment_hard_due_date_string")
-            late_check = date_field.find_element(By.CSS_SELECTOR, "#allow_late_submissions")
+            late_check = date_field.find_element(By.CSS_SELECTOR, "#assignment_allow_late_submissions")
             if assignment.hard_due_date:
                 if late.get_attribute("disabled"):
                     self.driver.execute_script("arguments[0].click()", late_check)
                 
                 late.clear()
-                late.send_keys(self.format_date(assignment.hard_due_date))
+                self.driver.execute_script(f"arguments[0].value = '{self.format_date(assignment.hard_due_date)}'", late)
             else:
                 if late.text: # Uncheck late submissions
                     self.driver.execute_script("arguments[0].click()", late_check)
@@ -255,6 +256,11 @@ class Gradescope():
         # Save the form
         save_button = self.driver.find_element(By.CSS_SELECTOR, "#assignment-actions .tiiBtn-primary")
         save_button.click()
+
+        try:
+            save_button.click() # Click a second time if first time was stuck at "required"
+        except StaleElementReferenceException:
+            pass
 
         # Update published state
         review_url = f"{assignment.url}/review_grades"
@@ -297,7 +303,7 @@ class Gradescope():
         if not date:
             return ""
 
-        return datetime.datetime.strftime(date, "%b %d %Y %I:%M %p")
+        return datetime.datetime.strftime(date, "%Y-%m-%dT%H:%M")
 
 
 class GscopeEncoder(json.JSONEncoder):
